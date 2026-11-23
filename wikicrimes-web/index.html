@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WikiCrimes Paraíba - Análise Espacial PostGIS</title>
+  <link rel="stylesheet" href="/leaflet.css" />
+  <script src="/leaflet.js"></script>
+  <style>
+    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; background: #1e293b; z-index: 1; }
+    .panel {
+      position: absolute; top: 15px; left: 15px; z-index: 1000;
+      background: rgba(20, 24, 31, 0.92); color: #fff;
+      padding: 16px; border-radius: 10px; width: 330px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4); backdrop-filter: blur(6px);
+    }
+    .panel h2 { margin: 0 0 6px 0; font-size: 18px; color: #ff5252; }
+    .panel p { margin: 0 0 14px 0; font-size: 12px; color: #b0b8c4; }
+    label { display: block; font-size: 12px; margin-bottom: 4px; color: #cbd5e1; font-weight: 600; }
+    select, button {
+      width: 100%; padding: 8px; margin-bottom: 12px; border-radius: 6px;
+      border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 12px;
+    }
+    .layers { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
+    .layers button { margin-bottom: 0; cursor: pointer; font-weight: 600; }
+    .layers button.active { background: #ef4444; border-color: #ef4444; }
+    .status-box {
+      background: #0f172a; padding: 10px; border-radius: 6px;
+      font-size: 12px; line-height: 1.5; border-left: 3px solid #3b82f6;
+    }
+  </style>
+</head>
+<body>
+
+<div class="panel">
+  <h2>WikiCrimes Paraíba</h2>
+  <p>Análise espacial de crimes na Paraíba via PostGIS</p>
+
+  <label for="cityFilter">Filtrar por Município</label>
+  <select id="cityFilter">
+    <option value="">Todos os municípios</option>
+  </select>
+
+  <label for="typeFilter">Filtrar por Tipo de Crime</label>
+  <select id="typeFilter">
+    <option value="">Todos os Crimes</option>
+    <option value="Theft">Furto</option>
+    <option value="Street Robbery">Roubo a Transeunte</option>
+    <option value="Vehicle Theft">Furto de Veículo</option>
+    <option value="Vandalism">Vandalismo</option>
+    <option value="Commercial Robbery">Roubo a Comércio</option>
+  </select>
+
+  <label>Visualização Espacial (PostGIS)</label>
+  <div class="layers">
+    <button id="hotspotsButton" class="active" onclick="switchLayer('hotspots')">Hotspots (DBSCAN)</button>
+    <button id="neighborhoodsButton" onclick="switchLayer('neighborhoods')">Bairros João Pessoa</button>
+    <button id="hexagonsButton" onclick="switchLayer('hexagons')">Grid Hexagonal</button>
+    <button id="pointsButton" onclick="switchLayer('points')">Pontos Aproximados</button>
+  </div>
+
+  <div class="status-box" id="infoBox">
+    Carregando dados do PostGIS...
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script>
+  const API_URL = `${window.location.protocol}//${window.location.hostname}:4000`;
+  const infoBox = document.getElementById('infoBox');
+
+  const map = L.map('map', { zoomControl: false }).setView([-7.25, -36.7], 7);
+  L.control.zoom({ position: 'topright' }).addTo(map);
+
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Esri | © OpenStreetMap contributors" }).addTo(map);
+
+  const layerHotspots = L.layerGroup().addTo(map);
+  const layerNeighborhoods = L.layerGroup();
+  const layerHex = L.layerGroup();
+  const layerPoints = L.layerGroup();
+  let lastFittedCity = null;
+
+  function buildQueryString() {
+    const params = new URLSearchParams();
+    const city = document.getElementById('cityFilter').value;
+    const type = document.getElementById('typeFilter').value;
+    if (city) params.set('city', city);
+    if (type) params.set('type', type);
+    return params.toString();
+  }
+
+  async function fetchJson(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`API respondeu HTTP ${response.status}`);
+    return response.json();
+  }
+
+  function hotspotColor(total) {
+    return total > 80 ? '#991b1b' : total > 30 ? '#ef4444' : '#f97316';
+  }
+
+  function getCrimeTypeLabel(type) {
+    const labels = {
+      Theft: 'Furto',
+      'Street Robbery': 'Roubo a Transeunte',
+      'Vehicle Theft': 'Furto de Veículo',
+      Vandalism: 'Vandalismo',
+      'Commercial Robbery': 'Roubo a Comércio'
+    };
+    return labels[type] || type;
+  }
+
+  function neighborhoodDensityColor(density) {
+    return density > 50 ? '#7f1d1d' :
+           density > 20 ? '#dc2626' :
+           density > 5  ? '#f97316' :
+           density > 0  ? '#facc15' :
+                            '#64748b';
+  }
+
+  function hexagonColor(total) {
+    return total > 25 ? '#ef4444' : total > 10 ? '#eab308' : '#3b82f6';
+  }
+
+  async function loadData() {
+    try {
+      const queryString = buildQueryString();
+      const suffix = queryString ? `?${queryString}` : '';
+      const [hotspots, neighborhoods, hexagons, points] = await Promise.all([
+        fetchJson(`${API_URL}/api/map/hotspots${suffix}`),
+        fetchJson(`${API_URL}/api/map/neighborhoods${suffix}`),
+        fetchJson(`${API_URL}/api/map/hexagons${suffix}`),
+        fetchJson(`${API_URL}/api/map/points${suffix}`)
+      ]);
+
+      layerHotspots.clearLayers();
+      L.geoJSON(hotspots, {
+        style: (feature) => ({ fillColor: hotspotColor(feature.properties.incident_count), weight: 2, color: '#7f1d1d', fillOpacity: 0.55 }),
+        onEachFeature: (feature, layer) => {
+          const properties = feature.properties;
+          layer.bindPopup(`<strong>Hotspot #${properties.cluster_id}</strong><br/>Município: <b>${properties.city}</b><br/>Bairro: <b>${properties.primary_neighborhood}</b><br/>Total: <b>${properties.incident_count} crimes</b><br/>Vítimas: ${properties.victim_count}<br/>Predominante: ${getCrimeTypeLabel(properties.predominant_type)}`);
+        }
+      }).addTo(layerHotspots);
+
+      layerNeighborhoods.clearLayers();
+      L.geoJSON(neighborhoods, {
+        style: (f) => ({
+          fillColor: neighborhoodDensityColor(Number(f.properties.incidents_per_sq_km)),
+          weight: 1.5,
+          color: '#1e293b',
+          fillOpacity: 0.6
+        }),
+        onEachFeature: (f, l) => {
+          const properties = f.properties;
+          l.bindPopup(`
+            <strong>Bairro: ${properties.name}</strong><br/>
+            Município: <b>${properties.city}</b><br/>
+            Área oficial: <b>${properties.area_sq_km} km²</b><br/>
+            Total de crimes (ST_Contains): <b>${properties.incident_count}</b><br/>
+            Vítimas: <b>${properties.victim_count}</b><br/>
+            Criminosos: <b>${properties.offender_count}</b><br/>
+            Densidade: <b>${properties.incidents_per_sq_km} crimes/km²</b>
+          `);
+        }
+      }).addTo(layerNeighborhoods);
+
+      layerHex.clearLayers();
+      L.geoJSON(hexagons, {
+        style: (feature) => ({ fillColor: hexagonColor(feature.properties.incident_count), weight: 1, color: '#1e293b', fillOpacity: 0.65 }),
+        onEachFeature: (feature, layer) => layer.bindPopup(`<strong>Hexágono - ${feature.properties.city}</strong><br/>Ocorrências: <b>${feature.properties.incident_count}</b><br/>Vítimas: ${feature.properties.victim_count}<br/>Criminosos: ${feature.properties.offender_count}`)
+      }).addTo(layerHex);
+
+      layerPoints.clearLayers();
+      L.geoJSON(points, {
+        pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: '#dc2626', color: '#fff', weight: 1.5, fillOpacity: 0.9 }),
+        onEachFeature: (feature, layer) => {
+          const properties = feature.properties;
+          layer.bindPopup(`<strong>${getCrimeTypeLabel(properties.type)}</strong><br/>${properties.address}<br/>Vítimas: ${properties.victim_count}<br/>Criminosos: ${properties.offender_count}<br/><small>${new Date(properties.occurred_at).toLocaleString('pt-BR')}</small>`);
+        }
+      }).addTo(layerPoints);
+
+      const selectedCity = document.getElementById('cityFilter').value;
+      if (selectedCity !== lastFittedCity && points.features.length) {
+        map.fitBounds(L.geoJSON(points).getBounds(), { padding: [30, 30], maxZoom: 13 });
+        lastFittedCity = selectedCity;
+      }
+
+      infoBox.innerHTML = `
+        <strong>Crimes mapeados:</strong> ${points.features.length}<br/>
+        <strong>Bairros cruzados (ST_Contains):</strong> ${neighborhoods.features.length}<br/>
+        <strong>Zonas de Hotspot (DBSCAN):</strong> ${hotspots.features.length}<br/>
+        <small style="color:#fbbf24;">${neighborhoods.notice || 'Limites de bairros disponíveis apenas para João Pessoa.'}</small><br/>
+        <small style="color:#94a3b8;">Coordenadas sintéticas e aproximadas; não representam endereços verificados.</small><br/>
+        <small style="color:#94a3b8;">Clique no mapa para testar ST_DWithin (500m).</small>
+      `;
+    } catch (err) {
+      infoBox.innerHTML = `<span style="color:#f87171;">Erro na API: ${err.message}</span>`;
+    }
+  }
+
+  function switchLayer(layerName) {
+    document.querySelectorAll('.layers button').forEach(button => button.classList.remove('active'));
+    [layerHotspots, layerNeighborhoods, layerHex, layerPoints].forEach(layer => map.removeLayer(layer));
+
+    if (layerName === 'hotspots') { map.addLayer(layerHotspots); document.getElementById('hotspotsButton').classList.add('active'); }
+    if (layerName === 'neighborhoods') { map.addLayer(layerNeighborhoods); document.getElementById('neighborhoodsButton').classList.add('active'); }
+    if (layerName === 'hexagons') { map.addLayer(layerHex); document.getElementById('hexagonsButton').classList.add('active'); }
+    if (layerName === 'points') { map.addLayer(layerPoints); document.getElementById('pointsButton').classList.add('active'); }
+  }
+
+  document.getElementById('typeFilter').addEventListener('change', loadData);
+  document.getElementById('cityFilter').addEventListener('change', loadData);
+
+  map.on('click', async (e) => {
+    const { lat, lng } = e.latlng;
+    const params = new URLSearchParams({ latitude: lat, longitude: lng, radiusMeters: 500 });
+    const city = document.getElementById('cityFilter').value;
+    if (city) params.set('city', city);
+    try {
+      const result = await fetchJson(`${API_URL}/api/map/proximity?${params}`);
+      L.popup()
+        .setLatLng(e.latlng)
+        .setContent(`<strong>Radar PostGIS (Raio 500m)</strong><br/>Ocorrências próximas: <b>${result.total}</b><br/>${result.incidents.slice(0, 3).map(incident => `<small>• ${incident.type} - ${incident.city} (${incident.distance_meters}m)</small>`).join('<br/>')}`)
+        .openOn(map);
+    } catch (err) {
+      infoBox.innerHTML = `<span style="color:#f87171;">Erro na API: ${err.message}</span>`;
+    }
+  });
+
+  fetchJson(`${API_URL}/api/map/cities`)
+    .then(({ cities }) => {
+      const cityFilter = document.getElementById('cityFilter');
+      cities.forEach((city) => {
+        const option = document.createElement('option');
+        option.value = city;
+        option.textContent = city;
+        cityFilter.appendChild(option);
+      });
+      return loadData();
+    })
+    .catch((err) => {
+      infoBox.innerHTML = `<span style="color:#f87171;">Erro na API: ${err.message}</span>`;
+    });
+  setInterval(loadData, 15000);
+</script>
+</body>
+</html>

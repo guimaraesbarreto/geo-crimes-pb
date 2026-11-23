@@ -1,0 +1,95 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: crimes-mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  mock-api:
+    build: ./mock-crime-api
+    container_name: crimes-mock-api
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/ssp_mock
+      - PORT=3000
+    volumes:
+      - ./mock-crime-api:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - mongodb
+
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: wikicrimes-postgis
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=wikicrimes
+      - POSTGRES_PASSWORD=wikicrimes_pass
+      - POSTGRES_DB=wikicrimes_geo
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ./postgis-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wikicrimes -d wikicrimes_geo"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  wikicrimes-api:
+    build: ./wikicrimes-api
+    container_name: wikicrimes-api
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      - DATABASE_URL=postgres://wikicrimes:wikicrimes_pass@postgis:5432/wikicrimes_geo
+      - MOCK_API_URL=http://mock-api:3000
+      - PORT=4000
+    volumes:
+      - ./wikicrimes-api:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      postgis:
+        condition: service_healthy
+      mock-api:
+        condition: service_started
+
+  patrol-ml-service:
+    build: ./patrol-ml-service
+    container_name: wikicrimes-patrol-ml
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://wikicrimes:wikicrimes_pass@postgis:5432/wikicrimes_geo
+      - TIME_ZONE=America/Fortaleza
+    depends_on:
+      postgis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  wikicrimes-web:
+    build: ./wikicrimes-web
+    container_name: wikicrimes-web
+    restart: always
+    ports:
+      - "8080:80"
+    volumes:
+      - ./wikicrimes-web/index.html:/usr/share/nginx/html/index.html
+    depends_on:
+      - wikicrimes-api
+      
+volumes:
+  mongo_data:
+  postgis_data:
