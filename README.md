@@ -1,4 +1,4 @@
-# WikiCrimes Paraíba
+# Geo Crimes Paraíba
 
 Geo Crimes PB is a demonstration project for exploring synthetic crime data
 with a web map, a Node.js API, and PostGIS spatial analysis. An optional Python
