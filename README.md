@@ -57,12 +57,27 @@ collections. If the `incidents` collection is empty, it inserts 300 initial
 synthetic records. After startup, it checks once per minute whether to add a new
 record.
 
-The current generator is configured for an **expected average of 500 generated
-records per day across all 15 cities**. This is a probability-based expectation,
-not a daily quota, so the actual count can be higher or lower. The generation
-probability is higher at night and lower during the day. A record includes a
-city, neighborhood, street, incident type, victim and offender counts, and
-timestamps. Locations and addresses are not verified.
+The generator uses the following **expected daily averages** across all 15
+cities, based on the Paraíba 2025 figures supplied for this demonstration:
+
+| Generated category | Expected records/day |
+| --- | ---: |
+| Cell phone theft/robbery | 17.5 |
+| Vehicle theft/robbery | 14 |
+| Street robbery | 11 |
+| Generic theft | 6 |
+| Rape of a vulnerable person | 3 |
+| Commercial robbery | 3 |
+| Homicide, femicide, and robbery resulting in death | 2.8 total, split equally |
+| Attempted homicide | 2 |
+| Psychological violence against women | 2 |
+| Vandalism | 1 |
+
+This totals an expected **62.3 generated records per day**. Generation is
+probability-based, not a daily quota, so actual counts vary. The category
+averages do not validate or reproduce official records, and are not calibrated
+per city. Generation probability retains the existing higher-at-night pattern.
+Generated addresses and locations are synthetic and unverified.
 
 Run the mock API tests locally:
 
