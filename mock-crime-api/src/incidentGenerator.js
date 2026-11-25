@@ -125,28 +125,30 @@ const paraibaLocations = [
   }
 ];
 
-const incidentTypes = ['Theft', 'Street Robbery', 'Vehicle Theft', 'Vandalism', 'Commercial Robbery'];
-const violentIncidentTypes = ['Feminicídio', 'Homicídio', 'Tentativa de homicídio'];
-const violentIncidentRatio = 1 / 5;
-
-function generateIncidentType(random = Math.random) {
-  if (random() < violentIncidentRatio) {
-    return chooseRandom(violentIncidentTypes, random);
-  }
-  return chooseRandom(incidentTypes, random);
-}
+const dailyIncidentRates = [
+  { type: 'Theft', incidentsPerDay: 6 },
+  { type: 'Street Robbery', incidentsPerDay: 11 },
+  { type: 'Cell Phone Theft/Robbery', incidentsPerDay: 17.5 },
+  { type: 'Vehicle Theft/Robbery', incidentsPerDay: 14 },
+  { type: 'Rape of Vulnerable Person', incidentsPerDay: 3 },
+  { type: 'Homicide', incidentsPerDay: 2.8 / 3 },
+  { type: 'Femicide', incidentsPerDay: 2.8 / 3 },
+  { type: 'Robbery Resulting in Death', incidentsPerDay: 2.8 / 3 },
+  { type: 'Attempted Homicide', incidentsPerDay: 2 },
+  { type: 'Psychological Violence Against Women', incidentsPerDay: 2 },
+  { type: 'Vandalism', incidentsPerDay: 1 },
+  { type: 'Commercial Robbery', incidentsPerDay: 3 }
+];
+const targetDailyIncidentCount = dailyIncidentRates.reduce(
+  (total, rate) => total + rate.incidentsPerDay,
+  0
+);
 const hourlyActivityRates = [
   { hours: [22, 23, 0, 1, 2, 3], incidentsPerHour: 3 },
   { hours: [18, 19, 20, 21], incidentsPerHour: 2 },
   { hours: [4, 5, 6], incidentsPerHour: 1 },
   { hours: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17], incidentsPerHour: 0.5 }
 ];
-const targetDailyIncidentCount = (() => {
-  const configuredCount = Number(process.env.TARGET_DAILY_INCIDENT_COUNT);
-  return Number.isInteger(configuredCount) && configuredCount > 0
-    ? configuredCount
-    : 4000;
-})();
 const dailyActivityWeight = hourlyActivityRates.reduce(
   (total, period) => total + period.hours.length * period.incidentsPerHour,
   0
@@ -154,6 +156,15 @@ const dailyActivityWeight = hourlyActivityRates.reduce(
 
 function chooseRandom(items, random) {
   return items[Math.floor(random() * items.length)];
+}
+
+function generateIncidentType(random = Math.random) {
+  let selectedRate = random() * targetDailyIncidentCount;
+  for (const rate of dailyIncidentRates) {
+    selectedRate -= rate.incidentsPerDay;
+    if (selectedRate < 0) return rate.type;
+  }
+  return dailyIncidentRates.at(-1).type;
 }
 
 function generateVictimCount(random = Math.random) {
@@ -239,6 +250,7 @@ function shouldGenerateIncidentNow(date = new Date(), random = Math.random) {
 
 module.exports = {
   generateOffenderCount,
+  dailyIncidentRates,
   generateIncidentType,
   generateRandomIncident,
   generateVictimCount,

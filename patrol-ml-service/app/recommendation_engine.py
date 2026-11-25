@@ -10,8 +10,8 @@ from shapely.ops import transform
 
 _to_wgs84 = Transformer.from_crs("EPSG:5880", "EPSG:4326", always_xy=True).transform
 _DENSE_NEIGHBORHOODS = {"Centro", "Manaíra", "Tambaú", "Mangabeira"}
-_MOTORCYCLE_TYPES = {"Theft", "Street Robbery", "Vandalism"}
-_CAR_TYPES = {"Vehicle Theft", "Commercial Robbery"}
+_MOTORCYCLE_TYPES = {"Theft", "Street Robbery", "Cell Phone Theft/Robbery", "Vandalism"}
+_CAR_TYPES = {"Vehicle Theft", "Vehicle Theft/Robbery", "Commercial Robbery"}
 _TIME_ZONE = ZoneInfo(os.getenv("TIME_ZONE", "America/Fortaleza"))
 _STRATEGY_LABELS = {
     "preventive_coverage": "preventive_coverage",
