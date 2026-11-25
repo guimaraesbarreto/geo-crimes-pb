@@ -57,12 +57,15 @@ collections. If the `incidents` collection is empty, it inserts 300 initial
 synthetic records. After startup, it checks once per minute whether to add a new
 record.
 
-The current generator is configured for an **expected average of 500 generated
+The current generator is configured for an **expected average of 4,000 generated
 records per day across all 15 cities**. This is a probability-based expectation,
 not a daily quota, so the actual count can be higher or lower. The generation
 probability is higher at night and lower during the day. A record includes a
 city, neighborhood, street, incident type, victim and offender counts, and
 timestamps. Locations and addresses are not verified.
+Approximately 20% of generated records are violent crimes against life:
+Feminicídio, Homicídio, or Tentativa de homicídio (a 1:4 ratio between the
+violent and non-violent groups).
 
 Run the mock API tests locally:
 

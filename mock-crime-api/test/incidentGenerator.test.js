@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   generateOffenderCount,
+  generateIncidentType,
   generateRandomIncident,
   generateVictimCount,
   getIncidentsPerHour,
@@ -18,7 +19,28 @@ test('generates incidents with a city, neighborhood, street, and state', () => {
   assert.ok(incident.neighborhood);
   assert.ok(incident.street);
   assert.match(incident.address, new RegExp(`${incident.city} - PB$`));
-  assert.ok(['Theft', 'Street Robbery', 'Vehicle Theft', 'Vandalism', 'Commercial Robbery'].includes(incident.type));
+  assert.ok([
+    'Theft',
+    'Street Robbery',
+    'Vehicle Theft',
+    'Vandalism',
+    'Commercial Robbery',
+    'Feminicídio',
+    'Homicídio',
+    'Tentativa de homicídio'
+  ].includes(incident.type));
+});
+
+test('generates violent crimes in a one-to-four proportion', () => {
+  const values = Array.from({ length: 1000 }, (_, index) => index / 1000);
+  const types = values.map((value) => generateIncidentType(() => value));
+  const violentTypes = types.filter((type) => [
+    'Feminicídio',
+    'Homicídio',
+    'Tentativa de homicídio'
+  ].includes(type));
+
+  assert.equal(violentTypes.length, 200);
 });
 
 test('generates valid counts and favors small groups', () => {
@@ -39,7 +61,7 @@ test('generates valid counts and favors small groups', () => {
 });
 
 test('uses a higher generation rate at night through 4 a.m.', () => {
-  const expectedRate = (weight) => 500 / 34.5 * weight;
+  const expectedRate = (weight) => 4000 / 34.5 * weight;
   assert.equal(getIncidentsPerHour(23), expectedRate(3));
   assert.equal(getIncidentsPerHour(2), expectedRate(3));
   assert.equal(getIncidentsPerHour(4), expectedRate(1));
@@ -51,13 +73,13 @@ test('uses a higher generation rate at night through 4 a.m.', () => {
 
   const night = new Date('2026-01-01T02:00:00-03:00');
   assert.equal(shouldGenerateIncidentNow(night, () => 0.7), true);
-  assert.equal(shouldGenerateIncidentNow(night, () => 0.8), false);
+  assert.equal(shouldGenerateIncidentNow(night, () => 0.99), true);
 });
 
-test('scales the hourly probabilities to an expected 500 incidents per day', () => {
+test('scales the hourly probabilities to an expected 4000 incidents per day', () => {
   const expectedDailyCount = Array.from({ length: 24 }, (_, hour) =>
     getIncidentsPerHour(hour)
   ).reduce((total, rate) => total + rate, 0);
 
-  assert.ok(Math.abs(expectedDailyCount - 500) < 1e-10);
+  assert.ok(Math.abs(expectedDailyCount - 4000) < 1e-10);
 });

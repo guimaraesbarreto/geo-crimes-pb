@@ -17,6 +17,7 @@ services:
     environment:
       - MONGO_URI=mongodb://mongodb:27017/ssp_mock
       - PORT=3000
+      - TARGET_DAILY_INCIDENT_COUNT=4000
     volumes:
       - ./mock-crime-api:/usr/src/app
       - /usr/src/app/node_modules
